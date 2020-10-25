@@ -2,7 +2,7 @@
 # local directory name
 
 # path
-SRC_DIR=/home/js/project/arduino/work_rep/wearable_gas_detector
+SRC_DIR=/home/js/project/arduino/work_rep/wearable_gas_detector/src
 LOCAL_DIR=/media/sf_sf/arduino/gas_detector
 SRC_LIST="mcu_main.ino" # ASCFont.h hangul.cpp  hangul.h  KSFont.h"
 

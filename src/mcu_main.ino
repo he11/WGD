@@ -33,14 +33,14 @@ static volatile bool display_menu = OFF;
 // J1755 Command
 #define J1755_ACK_PACKET_SIZE 16
 typedef enum {
-	REQ_STEP = 0x09, // Real-time step
 	REQ_BATT = 0x13, // Remaining device battery
+	REQ_STEP = 0x51, // Real-time step
 	REQ_HRV  = 0x56 // HRV (HRV(D1), Vascular Occulusion(D2), Heart Rate(D3), Fatigue(D4))
 } req_cmd_t;
 
 typedef enum {
-	ACK_STEP = 0x09, // ACK real-time step
 	ACK_BATT = 0x13, // ACK remaining device battery
+	ACK_STEP = 0x51, // ACK real-time step
 	ACK_HRV  = 0x56 // ACK HRV (HRV(D1), Vascular Occulusion(D2), Heart Rate(D3), Fatigue(D4))
 } ack_cmd_t;
 
@@ -62,7 +62,7 @@ typedef enum {
 } uart_cntl_t;
 
 // BLE to MCU
-#define BLE2MCU_BUFF_MAX_SIZE 15
+#define BLE2MCU_BUFF_MAX_SIZE 16
 static uint8_t bleToMcuBuff[BLE2MCU_BUFF_MAX_SIZE];
 static volatile bool received = OFF;
 
@@ -166,9 +166,28 @@ void setup_lcd() {
 
 // Parse serial data
 bool parseData() {
-	const uint8_t* s_pkt = bleToMcuBuff;
-	const uint8_t cmd = *(s_pkt++);
-	const uint8_t* s_data = s_pkt;
+	const uint8_t* pkt_sp = bleToMcuBuff;
+	const uint8_t cmd = *pkt_sp;
+
+#if 1 //def __DEBUG__
+	debug.print("get data: ");
+	for (int i=0; i<BLE2MCU_BUFF_MAX_SIZE; i++) {
+		debug.printf("%02X ", bleToMcuBuff[i]);
+	}
+	debug.println();
+#endif
+
+	if (cmd == ACK_BATT) {
+		uint8_t cnt = 0;
+		uint16_t calc_crc = 0;
+		do { calc_crc += pkt_sp[cnt]; } while (++cnt < J1755_ACK_PACKET_SIZE-1);
+#ifdef __DEBUG__
+		debug.printf("cnt: %d / origin crc: %02X / calc crc: %02X\n", cnt, pkt_sp[cnt], calc_crc & (uint8_t) 0xFF);
+#endif
+		if (pkt_sp[cnt] != (calc_crc & (uint8_t)0xFF)) { return false; }
+	}
+
+	const uint8_t* data_sp = ++pkt_sp;
 
 	if (!(cmd & 0x80)) {
 #ifdef __DEBUG__
@@ -179,9 +198,9 @@ bool parseData() {
 		debug.println();
 #endif
 #if 0
-		if (cmd == REQ_STEP) { process_step(s_data); }
-		else if (cmd == REQ_BATT) { process_battery(s_data); }
-		else if (cmd == REQ_HRV) { process_hrv(s_data + 9); }
+		if (cmd == REQ_STEP) { process_step(data_sp); }
+		else if (cmd == REQ_BATT) { process_battery(data_sp); }
+		else if (cmd == REQ_HRV) { process_hrv(data_sp + 9); }
 #endif
 	} else { return false; } // Error processing
 
@@ -189,37 +208,23 @@ bool parseData() {
 }
 
 bool serial_event(uint8_t cmd) {
-	bool data_start = false;
-	uint16_t data_sum = 0;
+	bool start_data = false;
 	bool is_data = false;
 	uint8_t cnt = 0;
 
 	memset(bleToMcuBuff, 0, BLE2MCU_BUFF_MAX_SIZE);
 	while (toBLE.available() > 0) {
 		uint8_t get_data = toBLE.read();
-		data_start |= (get_data == cmd)? true : false;
-		if (!data_start) { continue; }
-		if (cnt == BLE2MCU_BUFF_MAX_SIZE) {
-			uint8_t calc_crc = data_sum & (uint8_t)0xFF;
-#ifdef __DEBUG__
-			debug.printf("get: %02X / crc: %02X\n", get_data, calc_crc);
-#endif
-			if ((calc_crc != cmd) && (calc_crc == get_data)) {
-				is_data = true;
-				break;
-			} else { return false; }
+		start_end_sign += (get_data == cmd)? 1 : 0; // 0: Data not start yet 1: Data start point 2: Data end point
+		if (!start_end_sign) { continue; }
+		else if (start_end_sign == 2) {
+			is_data = true;
+			break;
 		}
-
-		data_sum += get_data;
+		
 		bleToMcuBuff[cnt++] = get_data;
+		if (cnt >= BLE2MCU_BUFF_MAX_SIZE) { return false; }
 	}
-#ifdef __DEBUG__
-	debug.print("get data: ");
-	for (int i=0; i<BLE2MCU_BUFF_MAX_SIZE; i++) {
-		debug.printf("%02X ", bleToMcuBuff[i]);
-	}
-	debug.println();
-#endif
 
 	return (is_data)? parseData() : false;
 }
@@ -241,10 +246,10 @@ void loop()
 		onTime = OFF;
 
 		debug.println("on period~");
-#if 0 // protocol bingsin
+#if 0
 		// Get Current Steps
 		while (!serial_event(ACK_STEP)) {
-			sendToBLE(REQ_BATT, 0x01);
+			sendToBLE(REQ_STEP, 0x01);
 			delay(100);
 		}
 #endif
@@ -267,23 +272,26 @@ void loop()
 
 	if(sos_requested) {
 		debug.println("sos~");
-#if 0 // protocol bingsin
+
 		// Get Current Steps
 		while (!serial_event(ACK_STEP)) {
-			sendToBLE(REQ_BATT, 0x01);
+			sendToBLE(REQ_STEP, 0x00);
 			delay(100);
 		}
-#endif
+
+		// Get Current Steps2
+		while (!serial_event(0x52)) {
+			sendToBLE(0x52, 0x00);
+			delay(100);
+		}
+
+		//toBLE.flush();
 		// Get Device Battery
 		while (!serial_event(ACK_BATT)) {
 			sendToBLE(REQ_BATT, 0x99);
 			delay(100);
 		}
 
-		//toBLE.flush();
-		sendToBLE(REQ_HRV, 0x00);
-		delay(100);
-		serial_event(ACK_HRV);
 #if 0 // Impossible
 		// Get HRV
 		while (!serial_event(ACK_HRV)) {
