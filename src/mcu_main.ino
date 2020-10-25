@@ -1,7 +1,7 @@
 #include <SoftwareSerial.h>
 
 // Debugging
-#define __DEBUG__
+//#define __DEBUG__
 //#define __TEST__
 #ifdef __DEBUG__
 #define debug Serial
@@ -161,7 +161,9 @@ void setup_lcd() {
 	ssd1306_fillScreen(0x00);
 	ssd1306_setFixedFont(ssd1306xled_font6x8);
 	ssd1306_displayOff();
+#ifdef __DEBUG__
 	debug.println("ssd1306 init complete");
+#endif
 }
 
 // Parse serial data
@@ -182,7 +184,7 @@ bool parseData() {
 		uint16_t calc_crc = 0;
 		do { calc_crc += pkt_sp[cnt]; } while (++cnt < J1755_ACK_PACKET_SIZE-1);
 #ifdef __DEBUG__
-		//debug.printf("cnt: %d / origin crc: %02X / calc crc: %02X\n", cnt, pkt_sp[cnt], calc_crc & (uint8_t) 0xFF);
+		debug.printf("cnt: %d / origin crc: %02X / calc crc: %02X\n", cnt, pkt_sp[cnt], calc_crc & (uint8_t) 0xFF);
 #endif
 		if (pkt_sp[cnt] != (calc_crc & (uint8_t)0xFF)) { return false; }
 	}
@@ -259,7 +261,7 @@ void loop()
 	}
 
 	mcuToRf447Data[SOS] = sos_requested;
-	if(sos_requested) {
+	if (sos_requested) {
 		// Get Current Steps
 		toBLE.flush();
 		while (!serial_event(ACK_STEP)) {
@@ -291,6 +293,8 @@ void loop()
 	//debug.printf("is busy: %d\n", is_busy);
 #endif
 	if (received && !(is_busy)) {
+		sendToRF447(mcuToRf447Data);
+		received = OFF;
 #ifdef __DEBUG__
 		debug.print("Total: ");
 		for (int i=0; i<MCU2RF447_DATA_SIZE; i++) {
@@ -300,8 +304,6 @@ void loop()
 		debug.printf("steps: %d\n", *(int*)(mcuToRf447Data + STEPS));
 		debug.printf("battery: %u\n", mcuToRf447Data[BATT]);
 #endif
-		//sendToRF447(mcuToRf447Data);
-		received = OFF;
 	}
 
 	if (display_on && !(--display_time)) {
@@ -310,16 +312,31 @@ void loop()
 	}
 
 	if (display_menu) {
-		debug.println("menu~");
 		display_on = ON;
 		display_time = DISPLAY_ON_TIME(3);
-		ssd1306_displayOn();
 #if 0
-		sendToBLE(REQ_HRV, 0);
-		//while (!toBLE.available());
-		bool m = serial_event();
-		digitalWrite(LCD_OLED_EN, HIGH);
+		// Get Current Steps
+		toBLE.flush();
+		while (!serial_event(ACK_STEP)) {
+			sendToBLE(REQ_STEP, 0x01);
+			delay(100);
+		}
+
+		// Get Device Battery
+		toBLE.flush();
+		while (!serial_event(ACK_BATT)) {
+			sendToBLE(REQ_BATT, 0x99);
+			delay(100);
+		}
+
+		// Get HRV
+		//toBLE.flush();
+		while (!serial_event(ACK_HRV)) {
+			sendToBLE(REQ_HRV, 0x00);
+			delay(100);
+		}
 #endif
+		ssd1306_displayOn();
 //		uint8_t
 //		sprintf(, "%d", );
 		ssd1306_clearScreen();
@@ -371,6 +388,7 @@ void process_step(const uint8_t* data) {
 	memcpy(mcuToRf447Data + STEPS, data, 4);
 }
 
+// need to fix the ordering 
 void process_hrv(const uint8_t* data) {
 	mcuToRf447Data[VO] = data[1];
 	mcuToRf447Data[HR] = data[2];
@@ -391,7 +409,7 @@ bool checkAbnormal() {
 
 int checkGas() {
 	int gas_volume = analogRead(GAS_PIN);
-#if 0 //def __DEBUG__
+#ifdef __DEBUG__
 	debug.print("GAS[");
 	debug.print(gas_volume);  
 	debug.print("]");
