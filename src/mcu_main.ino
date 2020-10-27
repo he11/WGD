@@ -347,12 +347,12 @@ void loop()
 		display_on = ON;
 		display_time = DISPLAY_ON_TIME(3);
 		char lcd_strings[6][22] = {
-			"* DEVICE ID : ",
-			"* STEPS : ",
-			"* HEART RATE : ",
-			"* FATIGUE : ",
-			"* GAS : ",
-			"* BATTERY : "
+			"* DEVICE ID   : ",
+			"* STEP COUNTS : ",
+			"* HEART RATE  : ",
+			"* FATIGUE     : ",
+			"* GAS DENSITY : ",
+			"* BATTERY     : "
 		};
 
 		sprintf(*lcd_strings + 16, "%5d", GAS_DETECTOR_ID);
