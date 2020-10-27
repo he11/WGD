@@ -93,8 +93,9 @@ static volatile bool onTime = ON;
 static volatile bool delay_start = OFF;
 
 // Function pre-define
-void sendToBLE(const uint8_t characteristic, const uint8_t* command, uint8_t cmd_length);
-void sendToRF447(const uint8_t* send_data);
+void getBleInfo();
+void sendToBle(const uint8_t characteristic, const uint8_t* command, uint8_t cmd_length);
+void sendToRf447(const uint8_t* send_data);
 bool checkAbnormal();
 void process_step(const uint8_t* data);
 void process_hrv(const uint8_t* data);
@@ -177,7 +178,7 @@ void set_hr_check_period() { // testing...
 	cmd[4] = 0x00; // End time minute -> 0x40 == 40 minute
 	cmd[5] = 0xFF; // 0: Disable 1: Enable, Bit 0-6: Sunday - Saturday
 	cmd[6] = 0x01; // When work mode is 2, how long time to test, unit is minute
-	sendToBLE(SET_HR_PERIOD, cmd, 14);
+	sendToBle(SET_HR_PERIOD, cmd, 14);
 }
 
 // Parse serial data
@@ -257,31 +258,8 @@ void loop()
 	if (onTime || abnormal) {
 		periodTimer->pause();
 		onTime = OFF;
-		uint8_t cmd[14] = {0,};
 
-		// Get Current Steps
-		cmd[0] = 0x01;
-		toBLE.flush();
-		while (!serial_event(ACK_STEP)) {
-			sendToBLE(REQ_STEP, cmd, 14);
-			delay(100);
-		}
-
-		// Get Device Battery
-		cmd[0] = 0x99;
-		toBLE.flush();
-		while (!serial_event(ACK_BATT)) {
-			sendToBLE(REQ_BATT, cmd, 14);
-			delay(100);
-		}
-
-		// Get HRV
-		cmd[0] = 0x00;
-		toBLE.flush();
-		while (!serial_event(ACK_HRV)) {
-			sendToBLE(REQ_HRV, cmd, 14);
-			delay(100);
-		}
+		getBleInfo();
 
 		received = ON;
 		delay_start = ON;
@@ -290,32 +268,7 @@ void loop()
 
 	mcuToRf447Data[SOS] = sos_requested;
 	if (sos_requested) {
-		uint8_t cmd[14] = {0,};
-
-		// Get Current Steps
-		cmd[0] = 0x01;
-		toBLE.flush();
-		while (!serial_event(ACK_STEP)) {
-			sendToBLE(REQ_STEP, cmd, 14);
-			delay(100);
-		}
-
-		// Get Device Battery
-		cmd[0] = 0x99;
-		toBLE.flush();
-		while (!serial_event(ACK_BATT)) {
-			sendToBLE(REQ_BATT, cmd, 14);
-			delay(100);
-		}
-
-		// Get HRV
-		cmd[0] = 0x00;
-		toBLE.flush();
-		while (!serial_event(ACK_HRV)) {
-			sendToBLE(REQ_HRV, cmd, 14);
-			delay(100);
-		}
-
+		getBleInfo();
 		received = ON;
 		sos_requested = OFF;
 	}
@@ -325,7 +278,7 @@ void loop()
 	//debug.printf("is busy: %d\n", is_busy);
 #endif
 	if (received && !(is_busy)) {
-		sendToRF447(mcuToRf447Data);
+		sendToRf447(mcuToRf447Data);
 		received = OFF;
 #ifdef __DEBUG__
 		debug.print("Total: ");
@@ -380,7 +333,35 @@ WAIT:
 	delay(500);
 }
 
-void sendToBLE(const uint8_t characteristic, const uint8_t* command, uint8_t cmd_length) {
+void getBleInfo() {
+	uint8_t cmd[14] = {0,};
+
+	// Get Current Steps
+	cmd[0] = 0x01;
+	toBLE.flush();
+	while (!serial_event(ACK_STEP)) {
+		sendToBle(REQ_STEP, cmd, 14);
+		delay(100);
+	}
+
+	// Get Device Battery
+	cmd[0] = 0x99;
+	toBLE.flush();
+	while (!serial_event(ACK_BATT)) {
+		sendToBle(REQ_BATT, cmd, 14);
+		delay(100);
+	}
+
+	// Get HRV
+	cmd[0] = 0x00;
+	toBLE.flush();
+	while (!serial_event(ACK_HRV)) {
+		sendToBle(REQ_HRV, cmd, 14);
+		delay(100);
+	}
+}
+
+void sendToBle(const uint8_t characteristic, const uint8_t* command, uint8_t cmd_length) {
 	uint16_t calc_crc = characteristic;
 
 	toBLE.write(characteristic);
@@ -393,7 +374,7 @@ void sendToBLE(const uint8_t characteristic, const uint8_t* command, uint8_t cmd
 	toBLE.write(LF);
 }
 
-void sendToRF447(const uint8_t* send_data) {
+void sendToRf447(const uint8_t* send_data) {
 	toRF447.write(STX);
 	toRF447.write(GAS_DETECTOR_ID); // Device ID
 	toRF447.write(send_data, MCU2RF447_DATA_SIZE);
@@ -406,10 +387,10 @@ void process_step(const uint8_t* data) {
 
 // Need to fix the ordering 
 void process_hrv(const uint8_t* data) {
-	mcuToRf447Data[VO] = data[1];
-	mcuToRf447Data[HR] = data[2];
-	mcuToRf447Data[HRV] = data[0];
-	mcuToRf447Data[FATIGUE] = data[3];
+	mcuToRf447Data[VO] = data[3]; // Actualy: data[3] / On protocol: data[1]
+	mcuToRf447Data[HR] = data[1]; // Actualy: data[1] / On protocol: data[2];
+	mcuToRf447Data[HRV] = data[0]; // Actualy: data[0] / On protocol: data[0];
+	mcuToRf447Data[FATIGUE] = data[2]; // Actualy: data[2] / On protocol: data[3];
 }
 
 void process_battery(const uint8_t* data) {
