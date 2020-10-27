@@ -1,18 +1,16 @@
 #include "hangul.h"
 #include "ASCFont.h"
 #include "KSFont.h"
-#include <Arduino.h>
+#include "intf/ssd1306_interface.h"
 
-//static void utf8ascii(char* s);
-//static String utf8ascii(String s);
-//static byte utf8ascii(byte ascii);
-static byte* getHAN_font(byte HAN1, byte HAN2, byte HAN3);
-
+static uint8_t ssd1306_invt_byte = 0x00000000;
 byte HANFontImage[32] = {0, };
+
+static byte* getHAN_font(byte HAN1, byte HAN2, byte HAN3);
+static void lcd_draw_bitmap(uint8_t x, uint8_t y, uint8_t w, uint8_t h, const uint8_t *buf);
+
 void matrixPrint (int XPOS, int YPOS, char* pChar) {
-	byte rg = 3;   //<b1> red, <b0> green
 	byte *pFs;
-	byte i, b;
 	byte c, c2, c3;
 
 	while(*pChar) { 
@@ -23,8 +21,7 @@ void matrixPrint (int XPOS, int YPOS, char* pChar) {
 			c2 = *(byte*)pChar++;
 			c3 = *(byte*)pChar++;
 			pFs = getHAN_font(c, c2, c3);
-			ssd1306_drawBitmap(XPOS, YPOS, 16, 16, pFs);
-			//display.drawBitmap(XPOS, YPOS,  pFs, 16, 16, 1);
+			lcd_draw_bitmap(XPOS, YPOS, 16, 16, pFs);
 			XPOS = XPOS+16;
 			if(XPOS > 128){
 				XPOS = 0;
@@ -34,8 +31,7 @@ void matrixPrint (int XPOS, int YPOS, char* pChar) {
 		//---------- ASCII ---------
 		else {
 			pFs = (byte*)ASCfontSet + ((byte)c - 0x20) * 16;
-			ssd1306_drawBitmap(XPOS, YPOS, 8, 16, pFs);
-			//display.drawBitmap(XPOS, YPOS,  pFs, 8, 16, 1);
+			lcd_draw_bitmap(XPOS, YPOS, 8, 16, pFs);
 			XPOS = XPOS+8;
 			if(XPOS > 128){
 				XPOS = 0;
@@ -154,45 +150,38 @@ static byte* getHAN_font(byte HAN1, byte HAN2, byte HAN3) {
 
 	return HANFontImage;
 }
-#if 0
-static byte c1;  // Last character buffer
-static byte utf8ascii(byte ascii) {
-	if (ascii<128) { // Standard ASCII-set 0..0x7F handling  
-		c1=0;
-		return ascii;
+
+static void lcd_draw_bitmap(uint8_t x, uint8_t y, uint8_t w, uint8_t h, const uint8_t *buf) {
+	uint8_t i, j;
+	lcduint_t pitch = (w + 7) >> 3;
+	ssd1306_lcd.set_block(x, y, w);
+
+	for (j=(h>>3); j>0; j--)
+	{
+		uint8_t bit = 8;
+		for (i=w; i>0; i--)
+		{
+			uint8_t data = 0;
+			for (uint8_t k = 0; k<8; k++)
+			{
+				data |= (((pgm_read_byte(&buf[k*pitch]) >> bit) & 0x01) << k);
+			}
+
+			ssd1306_lcd.send_pixels1(ssd1306_invt_byte^data);
+			bit--;
+
+			if (bit < 1)
+			{
+				buf++;
+				bit=7;
+			}
+		}
+		if (!bit)
+		{
+			buf++;
+		}
+		buf += pitch * 7;
+		ssd1306_lcd.next_page();
 	}
-
-	// get previous input
-	byte last = c1;   // get last char
-	c1=ascii;         // remember actual character
-
-	switch (last) {  // conversion depnding on first UTF8-character
-		case 0xC2: return ascii;  break;
-		case 0xC3: return (ascii | 0xC0);  break;
-		case 0x82: if (ascii == 0xAC) { return 0x80; }  // special case Euro-symbol
-	}
-
-	return 0;   // otherwise: return zero, if character has to be ignored
+	ssd1306_intf.stop();
 }
-
-static String utf8ascii(String s) {
-	String r="";
-	char c;
-	for (int i=0; i<s.length(); i++) {
-		c = utf8ascii(s.charAt(i));
-		if (c!=0) { r+=c; }
-	}
-
-	return r;
-}
-
-static void utf8ascii(char* s) {      
-	int k=0;
-	char c;
-	for (int i=0; i<strlen(s); i++) {
-		c = utf8ascii(s[i]);
-		if (c!=0) { s[k++]=c; }
-	}
-	s[k]=0;
-}
-#endif
